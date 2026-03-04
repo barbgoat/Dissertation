@@ -1,6 +1,7 @@
+# server/protocol.py
 import json
 from dataclasses import dataclass, asdict
-from typing import Any, Optional
+from typing import Any, Optional, Dict, List, Union
 
 
 @dataclass
@@ -19,32 +20,35 @@ class Beacon:
 @dataclass
 class Sack:
     sf_id: int
-    acked_nodes: list[int]
+    acked_nodes: List[int]
 
 
 def encode(obj: Any) -> bytes:
     """
     Codifica um objeto (dataclass ou dict) em JSON bytes.
-    NÃO adiciona '\n' aqui se o driver já tratar; mas para consistência de linha,
-    preferimos que o driver adicione '\n'. (Mantemos sem '\n' por compatibilidade.)
+    NÃO inclui '\n' (o transport/driver adiciona '\n').
     """
     if hasattr(obj, "__dataclass_fields__"):
         payload = asdict(obj)
     elif isinstance(obj, dict):
         payload = obj
     else:
-        # fallback
-        payload = obj.__dict__
+        payload = getattr(obj, "__dict__", {"value": str(obj)})
 
-    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
-def decode(data: bytes) -> Optional[dict]:
+def decode(data: Union[bytes, str]) -> Optional[Dict[str, Any]]:
     """
-    Decodifica uma linha (bytes) para dict JSON.
+    Decodifica uma linha (bytes/str) para dict JSON.
     Ignora linhas vazias e logs tipo 'LOG: ...'.
     """
-    s = data.decode("utf-8", errors="ignore").strip()
+    if isinstance(data, bytes):
+        s = data.decode("utf-8", errors="ignore")
+    else:
+        s = data
+
+    s = s.strip()  # remove \r\n e espaços
     if not s:
         return None
 
@@ -58,6 +62,7 @@ def decode(data: bytes) -> Optional[dict]:
 
     try:
         obj = json.loads(s)
-        return obj if isinstance(obj, dict) else None
     except json.JSONDecodeError:
         return None
+
+    return obj if isinstance(obj, dict) else None
